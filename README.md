@@ -12,6 +12,10 @@
 3. Make a metadata table (see example below) and save as .csv file.
 4. Open .Rmd file and follow instructions in document.
 
+## Files:
+- use generic pipeline file for 2 groups
+- use 3 group file for 3 groups
+
 ## Example metadata table
 filename | sample_id  | group
 ------------- |------------- | -------------
