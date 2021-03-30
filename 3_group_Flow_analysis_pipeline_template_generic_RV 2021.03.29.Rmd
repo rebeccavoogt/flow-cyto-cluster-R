@@ -1,0 +1,761 @@
+---
+title: "Your title here"
+author:
+  - name: 
+    affiliation: 
+date: "`r format(Sys.time(), '%B %d, %Y')`" 
+output:
+  html_document:
+    code_folding: show
+    highlights: bg-maroon
+    number_sections: yes
+    theme: journal
+    toc: yes
+    toc_float: yes
+---
+# Information
+> Script to run UMAP, clustering, and automatic graph generation from flow cytometry data 
+> Written by Rebecca Voogt in March 2020 in R version 3.5.3, updated in R 4.0.2   
+> Acknowledgement and credit for code and ideas from Lei Huang (UChicago Bioinformatics Core), Young Yoon (Sperling Lab), UIC edgeR workshop, as well as various Internet sources (links at the end). Funding provided by Anne Sperling  
+> This version was finished March 29, 2021
+
+# Instructions
+## Instructions Part 1: Intro
+> FIRST, save this document in the folder with your data with a unique name. DO NOT overwrite the template.
+
+The first time through this document, please follow the instructions starting with the next line. After you have run this chunk by chunk and don't get any errors, please knit it (click the knit button at the top with the yarn ball icon) so that your work is saved.
+
+> NOTE: All figures will be auto-saved to the folder you choose, EXCEPT the pseudocolor UMAP. You will need to click the camera icon at the left hand side of the strip of navigation tools after the graph has been produced and manually save it.
+
+> NOTE: If this is your first time running this script, please make sure that you have installed all of the packages in the chunk below.
+
+Click the green triangle in the top right of the first grey box only if this is your first time running the script on this computer. It will take some time to install all the packages.
+
+Click the green triangle in the top right of grey box. Follow the next instructions.
+
+```{r Setup2, message=FALSE, warning=FALSE, results='hide'}
+# clean up environment
+rm(list=ls())
+
+# import needed packages
+suppressPackageStartupMessages(library(data.table))
+suppressPackageStartupMessages(library(plyr))
+suppressPackageStartupMessages(library(dplyr))
+suppressPackageStartupMessages(library(tidyr))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(umap))
+suppressPackageStartupMessages(library(circlize))
+suppressPackageStartupMessages(library(ComplexHeatmap))
+suppressPackageStartupMessages(library(FlowSOM))
+suppressPackageStartupMessages(library(flowCore))
+suppressPackageStartupMessages(library(dmm))
+suppressPackageStartupMessages(library(factoextra))
+suppressPackageStartupMessages(library(ggpubr))
+suppressPackageStartupMessages(library(here))
+suppressPackageStartupMessages(library(lubridate))
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(plotly))
+suppressPackageStartupMessages(library(ggrepel))
+suppressPackageStartupMessages(library(limma))
+suppressPackageStartupMessages(library(CATALYST))
+suppressPackageStartupMessages(library(RColorBrewer))
+
+# set seed for reproducibility
+set.seed(2936)
+```
+## Instructions
+### Choose options
+Fill in the options to the right of the arrow inside the quotes if applicable in the gray box below with 
+
+experimental condition (p.condition) must be exactly as on the metadata sheet column name
+name of group 1 (p.group1) must be exactly as on the metadata sheet
+name of group 2 (p.group2) must be exactly as on the metadata sheet
+name of group 3 (p.group3) must be exactly as on the metadata sheet
+number of cells per sample (p.cells)
+
+number of clusters you want to test in the flowSOM (p.testclusternumber)
+OR number of clusters you want to have in the flowSOM (p.absclusternumber)
+
+the full path to where your files are located (p.workingdirectory)
+the name of your file (p.file)
+the name of your metadata CSV file (p.metadata)
+unique experiment name (p.exp_name)
+colors for the cluster graph, make sure there is at least as many as max clusters to test or absolute number of clusters specified (p.colors)
+
+Click the green triangle in the top right of the next two gray boxes. Follow the next instructions.
+
+```{r, VarSet1, echo=FALSE, warning=FALSE}
+p.condition <- "group"
+p.group1 <- "baseline"
+p.group2 <- "group 2"
+p.group3 <- "group 3"
+p.cells <- 300
+p.levels <- c("baseline", "group 2", "group 3", ordered = TRUE)
+p.testclusternumber <- 30
+p.absclusternumber <- 15
+p.workingdirectory <- "path/to/file"
+p.meta <- "./metadata.csv"
+p.exp_name <- "unique expt name"
+```
+
+## Setup continued
+```{r, Setup3, echo=FALSE, warning=FALSE}
+# set working directory
+d.all <- list.files(path = p.workingdirectory,
+         pattern="export_.", 
+         full.names = T) %>% 
+   map_df(function(x) read.csv(x) %>% mutate(file_name=gsub(".csv","",basename(x)))) 
+
+setwd(p.workingdirectory)
+
+d.metadata <- read_csv(p.meta)
+
+d.all <- merge(d.all, d.metadata,
+        by = c("file_name"))
+
+colnames(d.all)
+
+```
+## Instructions Part 3: Setting variables
+To see a list of all possible column names either 1) look above  or 2) click on d.all in the list of variables in the environment in the top right corner of RStudio. It will open in a tab in the top left of RStudio. Look closely at the column names, and use them to fill in the variables to the right of the arrow inside the c( ) in the gray box below. Be sure to type them exactly as in the column headers, underscores, periods, and dashes included. Each column name needs to be in "quotes" and separated by commas. When you're done, click in the next gray box, and in the top right of this pane click "run" > "run all chunks below".
+
+variables you want to be included in the analyses. MAKE SURE "sample_id" and all of your experimental columns are in the list (p.vars)
+
+p.mds should be p.vars minus your grouping variable
+
+p.umap should be p.mds minus your sample_id variable
+
+```{r, VarSet2, echo=FALSE, warning=FALSE}
+p.vars <- c("sample_id", "group", "GP38", "CD31", "MHCII", "EPCAM")
+
+p.mds <- c("sample_id", "GP38", "CD31", "MHCII", "EPCAM")
+
+p.umap <- c("GP38", "CD31", "MHCII", "EPCAM")
+
+```
+
+Please do not type below this line!
+
+```{r, printVars}
+print("p.vars variable includes:")
+print(p.vars)
+print("p.mds variable includes:")
+print(p.mds)
+print("p.umap variable includes:")
+print(p.umap)
+print("number of cells per sample:")
+print(length(rownames(d.all))/length(unique(d.all$sample_id)))
+```
+
+# MDS
+```{r warning=FALSE, MDS, echo=FALSE}
+d.metadata$group <- factor(d.metadata$group)
+
+# make a duplicate dataframe for later
+d.pca <- d.all
+
+# set working directory, and assign group/treatment for each cell per sample
+setwd(p.workingdirectory)
+
+
+# Subset only the marker intensity and sample id columns
+eset <- d.pca[, colnames(d.pca) %in% p.mds]
+
+
+# take median intensity of the cells belonging to individual sample
+expr_median_sample_tbl <- eset %>%
+  group_by(sample_id) %>%
+  dplyr::summarize_all(funs(median))
+
+# convert to matrix
+expr_median_sample <- t(expr_median_sample_tbl[, -1])
+colnames(expr_median_sample) <- expr_median_sample_tbl$sample_id
+
+treatmds <- d.metadata[,p.condition]
+colnames(treatmds) <- "condition"
+
+# if samples have other meta data, e.g. 7 samples belong to two different groups
+# you can define the color of the groups.
+color_conditions <- brewer.pal(n = length(levels(d.metadata$group)), name = "Set1")[1:length(levels(d.metadata$group))]
+names(color_conditions) <- levels(d.metadata$group)
+
+# run plotMDS() by setting plot = FALSE (the function is from limma package)
+mds <- limma::plotMDS(expr_median_sample, plot = FALSE)
+
+# create a data frame to be used as input for ggplot
+ggdf <- data.frame(MDS1 = mds$x,
+                   MDS2 = mds$y,
+                   sample_id = colnames(expr_median_sample),
+                   disease = treatmds)
+
+# make and save ggplot of MDS colored by sample
+p <- ggplot(ggdf, aes(x = MDS1, y = MDS2, color = sample_id)) +
+  geom_point(size = 3, alpha = 0.8) +
+  geom_label_repel(aes(label = sample_id), show.legend = FALSE) +
+  theme_bw() +
+  coord_fixed(ratio = 3)
+
+plot(p)
+
+ggsave(p, filename=paste("MDS_",p.exp_name,".png", sep = ""), bg = "transparent")
+
+# make and save ggplot of MDS colored by group
+e <- ggplot(ggdf, aes(x = MDS1, y = MDS2, color = condition)) +
+  geom_point(size = 3, alpha = 0.8) +
+  geom_label_repel(aes(label = sample_id), show.legend = FALSE) +
+  theme_bw() +
+  scale_color_manual(values = color_conditions) +
+  coord_fixed(ratio = 3)
+
+plot(e)
+
+ggsave(e, filename=paste("MDS_by_disease_",p.exp_name,".png", sep = ""), bg = "transparent")
+
+```
+
+# UMAP
+```{r, UMAP, echo=FALSE, warning=FALSE}
+setwd(p.workingdirectory)
+# make a dataframe with only relevant columns
+d.data <- d.all[,p.umap]
+
+d.labels <- d.all$sample_id
+# umap
+data.umap <- umap(d.data)
+
+# start a new dataframe with UMAP generated coordinates
+d.umap <- data.frame(data.umap$layout)
+d.umap <- cbind(d.umap, d.labels)
+colnames(d.umap)[1] <- "UMAP1"
+colnames(d.umap)[2] <- "UMAP2"
+
+# plot overall UMAP
+w <- ggplot(d.umap,aes(y=UMAP2, x=UMAP1)) + 
+  geom_point(size= 0.005, color="black", shape = 20)+
+  labs(title="UMAP")+
+  coord_fixed(ratio = 1)
+plot(w)
+ggsave(w, filename=paste("UMAP_",p.exp_name,".png", sep = ""), bg = "transparent")
+
+# make and save a ggplot of the umap for each group
+d.manyumap <- d.umap
+colnames(d.manyumap)[3] <- "sample_id"
+d.manyumap <- merge(d.manyumap, d.metadata,
+        by = "sample_id")
+
+d.manyumap[4] <- NULL
+
+d.group1 <- filter(d.manyumap,
+                 group == p.group1)
+
+d.group2 <- filter(d.manyumap,
+                 group == p.group2)
+
+d.group3 <- filter(d.manyumap,
+                 group == p.group3)
+
+h <- ggplot(d.manyumap,aes(y=UMAP2, x=UMAP1)) + 
+  geom_point(size= 0.05, color="black", shape = 20)+ 
+  facet_wrap(~group)+
+  labs(title="UMAP Plotted by Group")
+plot(h)
+ggsave(h, filename=paste("UMAP_plotted_by_group_",p.exp_name,".png", sep = ""), bg = "transparent")
+
+i <- ggplot(d.group1,aes(y=UMAP2, x=UMAP1)) + 
+  geom_point(size= 0.05, color="black", shape = 20)+ 
+  labs(title=paste("UMAP ",p.group1))+
+  coord_fixed(ratio = 1)
+plot(i)
+ggsave(i, filename=paste("UMAP_",p.group1,"_",p.exp_name,".png", sep = ""), bg = "transparent")
+
+j <- ggplot(d.group2,aes(y=UMAP2, x=UMAP1)) + 
+  geom_point(size= 0.05, color="black", shape = 20)+ 
+  labs(title=paste("UMAP ",p.group2))+
+  coord_fixed(ratio = 1)
+plot(j)
+ggsave(j, filename=paste("UMAP_",p.group2,"_",p.exp_name,".png", sep = ""), bg = "transparent")
+
+k <- ggplot(d.group3,aes(y=UMAP2, x=UMAP1)) + 
+  geom_point(size= 0.05, color="black", shape = 20)+ 
+  labs(title=paste("UMAP ",p.group3))+
+  coord_fixed(ratio = 1)
+plot(k)
+ggsave(k, filename=paste("UMAP_",p.group3,"_",p.exp_name,".png", sep = ""), bg = "transparent")
+
+# make and save a ggplot of the umap for each sample
+g <- ggplot(d.umap,aes(y=UMAP2, x=UMAP1)) + 
+  geom_point(size= 0.05, color="black", shape = 20)+ 
+  facet_wrap(~d.labels)+
+  labs(title="UMAP Plotted by Sample")
+plot(g)
+ggsave(g, filename=paste("UMAP_plotted_by_sample_",p.exp_name,".png", sep = ""), bg = "transparent")
+
+```
+
+# FlowSOM Clustering
+```{r FlowSOM, echo=FALSE, warning=FALSE}
+setwd(p.workingdirectory)
+# make a flowframe object from the imported data
+d.flowframe <- flowFrame(as.matrix(d.data))
+
+# run the flowSOM
+data.flowsom <- FlowSOM(d.flowframe, compensate = FALSE, transform = FALSE, scale = TRUE, silent = FALSE, colsToUse = p.umap, maxMeta = p.testclusternumber, seed = 2936)
+# plot the tree map and save it
+pdf(paste("FlowSOM_tree_",p.exp_name,".pdf"), width = 8, height = 8)
+PlotStars(data.flowsom[[1]])
+dev.off()
+PlotStars(data.flowsom[[1]])
+# make a new object with the cluster identification
+flowSOM_cluster <- data.flowsom[[2]][data.flowsom[[1]]$map$mapping[,1]]
+# copy the dataset with only variables of interest and then add cluster ID as a new column
+mydata <- d.data
+mydata <- data.frame(mydata, flowSOM_cluster)
+d.umap <- data.frame(d.umap, flowSOM_cluster)
+
+# Determine number of points in each cluster per sample
+d.points <- dplyr::select(d.umap, 
+                          c(d.labels,flowSOM_cluster))
+colnames(d.points)[1] <- "sample_id"
+colnames(d.points)[2] <- "cluster"
+max.sample <- max(d.points$sample_id)
+max.cluster <- max(as.numeric(d.points$cluster))
+
+catvars <- c("sample_id","cluster")
+d.points[catvars] <- lapply(d.points[catvars], factor)
+
+count.table <- d.points %>%
+  group_by(sample_id, cluster) %>%
+  dplyr::summarize(stat = n()) %>%
+  spread(cluster, stat, fill = 0)
+
+samplenums <- count.table[1]
+
+count.table <- count.table[-c(1)]
+```
+
+# Plot the UMAP by sample overlaid with flowSOM cluster and save it
+```{r, UMAPcluster, echo=FALSE, warning=FALSE}
+setwd(p.workingdirectory)
+# plot and save overall umap colored by flowSOM cluster
+b <- ggplot(d.umap,aes(y=UMAP2, x=UMAP1)) + 
+  geom_point(aes(color=factor(flowSOM_cluster)),size=1, shape = 20)+
+  labs(title="UMAP")+
+  scale_color_manual(values = c("#3281a8", "#999999", "#000000", "#09851e", "#9b30c2", 
+                                "#31e0cc", "#d4a224", "#ed1202", "#47e31b", "#a23929", 
+                                "#abcdef", "#ffaf2e", "#909000", "#f7f42f", "#cdcdcd"))
+plot(b)
+ggsave(b, filename=paste("UMAP_overlaid_with_FlowSom_Cluster",p.exp_name,".png", sep = ""), bg = "transparent")
+
+d.manyflowsom <- d.umap
+colnames(d.manyflowsom)[3] <- "sample_id"
+d.manyflowsom <- merge(d.manyflowsom, d.metadata,
+        by = "sample_id")
+
+d.manyflowsom[5] <- NULL
+
+# plot and save umap colored by flowSOM cluster and split into groups
+m <- ggplot(d.manyflowsom,aes(y=UMAP2, x=UMAP1)) + 
+  geom_point(aes(color=factor(flowSOM_cluster)),size=1, shape = 20)+ 
+  facet_wrap(~group)+
+  labs(title="UMAP by Group and Colored by FlowSOM Cluster")+
+  scale_color_manual(values = c("#3281a8", "#999999", "#000000", "#09851e", "#9b30c2", 
+                                "#31e0cc", "#d4a224", "#ed1202", "#47e31b", "#a23929", 
+                                "#abcdef", "#ffaf2e", "#909000", "#f7f42f", "#cdcdcd"))
+plot(m)
+ggsave(m, filename=paste("UMAP_plotted_by_group_and_cluster_",p.exp_name,".png", sep = ""), bg = "transparent")
+
+d.risk1 <- filter(d.manyflowsom,
+                  group == p.group1)
+d.del1 <- filter(d.manyflowsom,
+                  group == p.group2)
+
+i <- ggplot(d.risk1,aes(y=UMAP2, x=UMAP1)) + 
+  geom_point(aes(color=factor(flowSOM_cluster)),size=1, shape = 20)+ 
+  labs(title=paste("UMAP ",p.group1," Colored by FlowSOM Cluster"))+
+  scale_color_manual(values = c("#3281a8", "#999999", "#000000", "#09851e", "#9b30c2", 
+                                "#31e0cc", "#d4a224", "#ed1202", "#47e31b", "#a23929", 
+                                "#abcdef", "#ffaf2e", "#909000", "#f7f42f", "#cdcdcd"))
+plot(i)
+ggsave(i, filename=paste("UMAP_",p.group1,"_plotted_by_group_and_cluster_",p.exp_name,".png", sep = ""), bg = "transparent")
+
+j <- ggplot(d.del1,aes(y=UMAP2, x=UMAP1)) + 
+  geom_point(aes(color=factor(flowSOM_cluster)),size=1, shape = 20)+
+  labs(title=paste("UMAP ",p.group2," Colored by FlowSOM Cluster"))+
+  scale_color_manual(values = c("#3281a8", "#999999", "#000000", "#09851e", "#9b30c2", 
+                                "#31e0cc", "#d4a224", "#ed1202", "#47e31b", "#a23929", 
+                                "#abcdef", "#ffaf2e", "#909000", "#f7f42f", "#cdcdcd"))
+plot(j)
+ggsave(j, filename=paste("UMAP_",p.group2,"_plotted_by_group_and_cluster_",p.exp_name,".png", sep = ""), bg = "transparent")
+
+# plot and save umap colored by flowSOM cluster and split into each sample
+k <- ggplot(d.umap,aes(y=UMAP2, x=UMAP1)) + 
+  geom_point(aes(color=factor(flowSOM_cluster)),size=1, shape = 20)+ 
+  facet_wrap(~d.labels)+
+  labs(title="UMAP by Sample and Colored by FlowSOM Cluster")+
+  scale_color_manual(values = c("#3281a8", "#999999", "#000000", "#09851e", "#9b30c2", 
+                                "#31e0cc", "#d4a224", "#ed1202", "#47e31b", "#a23929", 
+                                "#abcdef", "#ffaf2e", "#909000", "#f7f42f", "#cdcdcd"))
+plot(k)
+ggsave(k, filename=paste("UMAP_plotted_by_sample_and_cluster_",p.exp_name,".png", sep = ""), bg = "transparent")
+
+```
+
+# UMAP Pseudocolor Graph
+```{r, UMAP.Pseudocolor, echo=FALSE, warning=FALSE}
+setwd(p.workingdirectory)
+UMAP1 <- d.umap$UMAP1
+UMAP2 <- d.umap$UMAP2
+# use plotly package to plot a density/pseudocolor map of umap. lighter color indicates more cells there
+s <- subplot(
+  plot_ly(x = UMAP1, type = "histogram"),
+  plotly_empty(),
+  plot_ly(x = UMAP1, y = UMAP2, type = "histogram2dcontour"),
+  plot_ly(y = UMAP2, type = "histogram"),
+  nrows = 2, heights = c(0.2, 0.8), widths = c(0.8, 0.2), margin = 0,
+  shareX = TRUE, shareY = TRUE, titleX = TRUE, titleY = TRUE
+)
+x <- list(title="UMAP1", center = TRUE)
+y <- list(title="UMAP2", center = TRUE)
+
+s <- plot_ly(x = UMAP1, y = UMAP2, type = "histogram2dcontour") %>%
+  layout(xaxis = x, yaxis = y)
+s
+```
+
+# UMAP with marker intensity color overlay
+```{r, colorbyfluor, echo=FALSE, warning=FALSE}
+d.fluormap <- d.data
+d.fluormap$UMAP1 <- d.umap$UMAP1
+d.fluormap$UMAP2 <- d.umap$UMAP2
+
+# for each color used in umap and flowSOM analysis, plot and save a graph of where that marker is "expressed"
+for(i in 1:length(p.umap)){
+o <- ggplot(d.fluormap, aes(x=UMAP1, y= UMAP2, color=d.fluormap[,i])) + 
+  geom_point(size=1, shape = 20)+ 
+  labs(title=paste("UMAP Marker Color Overlay - ",colnames(d.fluormap)[i]))+
+  scale_color_gradient2(midpoint = 500, low="blue",mid="grey", high="red")
+
+plot(o)
+ggsave(o, filename=paste("UMAP_plotted_by_marker_",colnames(d.fluormap)[i],"_",p.exp_name,".png", sep = ""), bg = "transparent")
+}
+
+```
+
+
+# Heatmap
+```{r, Heatmap, echo=FALSE, warning=FALSE}
+# this block makes a heatmap with z-scores indicating where cells from each cluster are coming from
+# credit: UIC edgeR workshop for color gradient
+
+setwd(p.workingdirectory)
+# make a table of counts per sample per cluster
+count.table.t <- data.frame(t(count.table))
+colnames(count.table.t) <- t(samplenums)
+# normalize the table
+count.norm.z <- t(scale(t(count.table.t)))
+
+# sum the number of cells in each cluster
+clustersize <- colSums(count.table)
+data.frame(clustersize)
+# plot a barplot of cluster size on the heatmap axis
+rowha <- rowAnnotation(Cells_in_Cluster = anno_barplot(clustersize))
+
+# plot the heatmap. once to save and once to display in knitted html document
+col_fun <-colorRamp2(c(-3,0,3),c("blue","white","red"))
+pdf(paste("Heatmap_",p.exp_name,".pdf", sep = ""), width = 8, height = 8)
+Heatmap(count.norm.z,show_row_names = T, name="z-score", col= col_fun, row_title = "cluster", left_annotation = rowha, column_title = "sample", use_raster = FALSE)
+dev.off()
+
+Heatmap(count.norm.z,show_row_names = T, name="z-score", col= col_fun, row_title = "cluster", left_annotation = rowha, column_title = "sample", use_raster = FALSE)
+rm(count.table.t, count.norm.z)
+```
+
+# Cluster phenotypes (avg expression per marker)
+```{r, ClusterPheno, echo=FALSE, warning=FALSE}
+# this block makes a graph for each cluster showing each marker's expression
+setwd(p.workingdirectory)
+# make a dataframe by adding cluster number as a feature for each cell
+cluster.data <- cbind(d.data, mydata$flowSOM_cluster)
+colnames(cluster.data)[(strtoi(length(p.umap)))+1] <- "cluster"
+
+# calculate average expression of each marker for each cluster
+cluster.avg <- aggregate(cluster.data[,1:strtoi(length(p.umap))], list(cluster.data$cluster), mean)
+cluster.avg <- cluster.avg[-c(1)]
+markerlist <- colnames(cluster.avg)
+cluster.avg <- t(cluster.avg)
+cluster.avg <- data.frame(cluster.avg)
+colnames(cluster.avg) <- seq(1,strtoi(max.cluster))
+
+clusternum <- max.cluster
+d.graphdata <- cluster.avg
+
+setDT(d.graphdata, keep.rownames = TRUE)
+colnames(d.graphdata)[1] <- "Parameter"
+colnames(d.graphdata)[2:(clusternum+1)] <- paste("Cluster", seq(1:clusternum), sep = "")
+
+# code for line below from Young Me Yoon
+# determine max value for each marker
+d_max <- d.graphdata %>% summarise_if(is.numeric, max, na.rm=TRUE)
+# determine max value overall
+v_max <- max(t(d_max))
+
+# use tidyr::gather to make long form of cluster parameter info for graphing
+d.graph.long <- gather(d.graphdata, cluster, value, -Parameter, factor_key = TRUE)
+
+# graph all parameter information for all clusters and save it
+q <- ggplot(d.graph.long, aes(fill=cluster, y=value, x=Parameter))+
+  geom_bar(position="dodge", stat="identity")+
+  theme(axis.text.x = element_text(angle=45, hjust=1))+
+  theme(legend.position = "bottom")
+
+plot(q)
+
+ggsave(q, filename=paste("All_cluster_phenotypes",p.exp_name,".png", sep = ""), bg= "transparent")
+
+# plot and save a graph for each cluster showing marker expression
+d.graphdata <- data.frame(d.graphdata)
+for(i in 2:(clusternum+1)){
+z <- ggplot(d.graphdata, aes(x=Parameter, y= d.graphdata[,i])) + 
+  geom_bar(position="dodge", stat="identity", width = 0.6)+
+  coord_cartesian(ylim = c(0, v_max)) +
+  labs(y="MFI", title=colnames(d.graphdata)[i])+
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+
+plot(z)
+ggsave(z, filename=paste(colnames(d.graphdata)[i],"_phenotype_",p.exp_name,".png", sep = ""), bg = "transparent")
+}
+```
+
+# Cluster Phenotype Heatmap
+```{r warning=FALSE, Clusterheatmap, echo=FALSE}
+# this block makes a heatmap showing relative high or low expression for each marker for each cluster
+setwd(p.workingdirectory)
+p.clusterpheno <- d.graphdata
+rownames(p.clusterpheno) <- p.clusterpheno[,1]
+p.clusterpheno[,1] <- NULL
+colnames(p.clusterpheno) <- seq(1, clusternum)
+clusterpheno.z <- t(scale(t(p.clusterpheno)))
+
+# sum the number of cells in each cluster
+clustersize <- colSums(count.table)
+data.frame(clustersize)
+# plot a bargraph of cluster size on the heatmap axis
+columnha <- HeatmapAnnotation(Cells_in_Cluster = anno_barplot(clustersize))
+
+# plot the heatmap twice, once to save and once to display in knitted html file
+col_fun <-colorRamp2(c(-3,0,3),c("blue","white","red"))
+pdf(paste("Cluster_Phenotype_Heatmap_",p.exp_name,".pdf"), width = 8, height = 8)
+Heatmap(clusterpheno.z, 
+        column_labels = colnames(clusterpheno.z), 
+        row_labels = rownames(clusterpheno.z), 
+        name="z-score", 
+        col= col_fun, 
+        row_title = "Parameter", 
+        column_title = "Cluster", 
+        top_annotation = columnha,
+        cluster_rows = FALSE,
+        use_raster = FALSE)
+dev.off()
+
+Heatmap(clusterpheno.z, 
+        column_labels = colnames(clusterpheno.z), 
+        row_labels = rownames(clusterpheno.z), 
+        name="z-score", 
+        col= col_fun, 
+        row_title = "Parameter", 
+        column_title = "Cluster", 
+        top_annotation = columnha,
+        cluster_rows = FALSE,
+        use_raster = FALSE)
+```
+
+
+# Graphs comparing number of cells per cluster, graphed by condition/group
+```{r Conditiongraph}
+setwd(p.workingdirectory)
+# define experimental conditions
+condition <- d.metadata$group
+
+# make a new table to add condition
+count.table.condition <- count.table
+count.table.condition$testvar <- condition
+count.table.condition <- as.data.frame(count.table.condition)
+
+# reorder columns
+count.table.condition <- count.table.condition[c(strtoi(max.cluster)+1, 1:strtoi(max.cluster))]
+
+# make an average table for genotype and treatment (Young Yoon)
+d.avg.condition <- count.table.condition %>% 
+  group_by(testvar) %>% 
+  summarise_if(is.numeric, mean, na.rm=TRUE)
+d.avg.condition <- as.data.frame(d.avg.condition)
+
+#To fix the space at the bottom, separately assign limits to bottom and top. (code from Young Yoon)
+##First create a dataframe that contains max value, max*1.1, max*1.2 to use for ylimits
+d_max <- count.table %>% summarise_if(is.numeric, max, na.rm=TRUE)
+###Add a column in front
+d_max <- data.frame(a=0, d_max)
+
+d_max_1.2 <- d_max*1.2
+d_max_1.1 <- d_max*1.1
+d_max_1.3 <- d_max*1.3
+d_max_1.4 <- d_max*1.4
+d_max_1.5 <- d_max*1.5
+
+# make bar graphs comparing treatment for each population using a for loop (Young Yoon)
+for (i in 2:(strtoi(max.cluster)+1)){
+  chartTitle1 <- paste("FlowSOM Cluster ", colnames(count.table.condition)[i])
+  axislabel <- paste("# cells in FlowSOM cluster ", colnames(count.table.condition)[i])
+  plt <- ggplot(data=count.table.condition,aes(x=testvar, y=count.table.condition[,i])) +
+    geom_point(aes(color=testvar), size=3, 
+               position=position_jitter(w=0.08),
+               show.legend=FALSE) +
+    geom_bar(data=d.avg.condition,
+             aes(x=testvar, y=d.avg.condition[,i]), 
+             stat="identity", alpha=0, color="black", width=0.75) +
+    labs(y=axislabel, x= p.condition, title = chartTitle1) +
+    theme_classic() +
+    theme(text=element_text(size=12, color="black"),
+          plot.title=element_text(size=15)) +
+    theme(aspect.ratio=0.5) +
+    stat_compare_means(comparisons = list(c(p.group1,p.group2), c(p.group2,p.group3), c(p.group1,p.group3)), 
+                       label.y = c(d_max_1.1[,i], d_max_1.1[,i], d_max_1.2[,i]),
+                       size=7) +
+    stat_compare_means(method="anova",
+                       label.y = d_max_1.4[,i], 
+                       size=7)+
+    scale_y_continuous(expand=c(0,0)) +
+    expand_limits(y=d_max_1.5[,i])
+  print(plt)
+  ggsave(plt, filename=paste("plt_FlowSOM_Cluster_",colnames(count.table.condition)[i],p.exp_name,".png"), bg = "transparent")
+}
+```
+
+# Make full dataframes and export them
+```{r, Exportdata, echo=FALSE, warning=FALSE}
+setwd(p.workingdirectory)
+d.all <- data.frame(d.all,flowSOM_cluster)
+d.all$UMAP1 <- d.umap$UMAP1
+d.all$UMAP2 <- d.umap$UMAP2
+d.export <- mydata
+d.export$sampleid <- d.labels
+d.export$UMAP1 <- d.umap$UMAP1
+d.export$UMAP2 <- d.umap$UMAP2
+colnames(d.umap)[3] <- "sampleid"
+d.clusterexp <- count.table.condition
+d.clusterexp$sampleid <- unlist(samplenums)
+
+d.avg.cluster <- d.clusterexp[,2:max.cluster]/p.cells*100
+d.avg.cluster$sampleid <- d.clusterexp$sampleid
+d.avg.cluster$testvar <- d.clusterexp$testvar
+
+write.csv(d.clusterexp, file=paste("Number_cells_per_cluster_by_sample_",p.exp_name,".csv", sep = ""),row.names = FALSE)
+
+write.csv(d.all, file=paste("All_data_with_cluster_sampleid_UMAP_",p.exp_name,".csv", sep = ""),row.names = FALSE)
+
+write.csv(d.export, file=paste("Parameters_used_to_cluster_with_cluster_sampleid_UMAP_",p.exp_name,".csv", sep = ""), row.names = FALSE)
+
+write.csv(d.umap, file=paste("UMAP_coordinates_sampleid_cluster_data_",p.exp_name,".csv", sep = ""), row.names = FALSE)
+
+write.csv(cluster.avg, file=paste("Cluster_phenotype_info_",p.exp_name,".csv", sep = ""), row.names = TRUE)
+
+write.csv(d.avg.cluster, file=paste("Cluster_percentages_",p.exp_name,".csv", sep = ""), row.names = FALSE)
+```
+# Graphs and files produced
+You will have  CSV files produced, the file names start with    
+Number_cells_per_cluster_by_sample_ (columns are cluster numbers)  
+All_data_with_cluster_sampleid_UMAP_    
+Parameters_used_to_cluster_with_cluster_sampleid_UMAP_    
+UMAP_coordinates_sampleid_cluster_data_    
+Cluster_phenotype_info_  
+
+You will have a pdf of the heatmap which starts with Heatmap_    
+You will have a pdf of the cluster phenotype heatmap which starts with Cluster_Phenotype_Heatmap_  
+
+You will have a pdf of the FlowSom tree which starts with FlowSOM_tree_  
+
+You will have two pdfs of the MDS, they start with  
+MDS_plot_  
+MDS_plot_by...  
+
+You will have 3 UMAP .png files  
+UMAP_  
+UMAP_plotted_by_sample_  
+UMAP_plotted_by_sample_and_cluster_  
+
+You will have a UMAP color overlay for each of your markers  
+
+You will have a .png file of a bar graph of each cluster comparing the groups specified. The number of graphs will vary depending on how many clusters were made.  
+
+You will have a .png file of a bar graph showing the mean fluorescence intensity of each color for each cluster, all should have the same scale.
+
+# Sources 
+https://community.rstudio.com/t/error-aesthetics-must-be-either-length-1-or-the-same-as-the-data-2-fill/15579/3
+https://stackoverflow.com/questions/57063269/plotting-data-in-r-error-default-method-not-implemented-for-type-list
+https://www.statmethods.net/input/datatypes.html
+https://stackoverflow.com/questions/5620885/how-does-one-reorder-columns-in-a-data-frame
+https://stackoverflow.com/questions/21982987/mean-per-group-in-a-data-frame
+https://stackoverflow.com/questions/54050320/error-data-must-be-a-data-frame-or-other-object-coercible-by-fortify-no
+https://www.r-graph-gallery.com/48-grouped-barplot-with-ggplot2.html
+https://stackoverflow.com/questions/22359127/how-to-repeat-a-string-n-times-in-r
+https://stackoverflow.com/questions/1663370/loop-over-string-variables-in-r
+https://stackoverflow.com/questions/24428051/removing-display-of-row-names-from-data-frame
+https://stackoverflow.com/questions/12019461/rbind-error-names-do-not-match-previous-names/12019514
+https://www.edureka.co/community/53878/change-ggplot2-default-color-palette
+https://jokergoo.github.io/ComplexHeatmap-reference/book/a-single-heatmap.html#heatmap-as-raster-image
+https://stackoverflow.com/questions/11454333/r-numbers-from-1-to-100/11454412
+https://stackoverflow.com/questions/6081439/changing-column-names-of-a-data-frame
+https://www.datamentor.io/r-programming/if-else-statement/
+https://www.quora.com/How-do-I-get-a-frequency-count-based-on-two-columns-variables-in-an-R-dataframe
+https://www.edureka.co/community/4963/creating-an-empty-data-frame-with-only-column-names-r
+https://stackoverflow.com/questions/17728540/compress-rows-with-na-in-different-columns-to-create-a-single-row
+https://stat.ethz.ch/R-manual/R-devel/library/base/html/strtoi.html
+https://www.guru99.com/r-data-frames.html
+https://rdrr.io/cran/dplyr/man/group_by.html
+https://stackoverflow.com/questions/55248086/r-dplyrs-group-by-consider-empty-groups-as-well
+https://www.rdocumentation.org/packages/dmm/versions/2.1-5/topics/unfactor
+https://stackoverflow.com/questions/46325145/error-with-select-function-from-dplyr
+https://community.rstudio.com/t/error-cannot-allocate-vector-of-size-76-4-gb/10615/2
+https://www.statmethods.net/advstats/cluster.html
+https://ggplot2.tidyverse.org/reference/
+https://ggplot2.tidyverse.org/reference/geom_dotplot.html
+https://ggplot2.tidyverse.org/reference/geom_point.html
+https://stackoverflow.com/questions/26643852/ggplot-plots-in-scripts-do-not-display-in-rstudio
+https://stackoverflow.com/questions/7714677/scatterplot-with-too-many-points
+https://www.r-bloggers.com/7-visualizations-you-should-learn-in-r/
+https://stackoverflow.com/questions/26247429/data-manipulation-in-r-x-must-be-atomic
+https://www.statmethods.net/advstats/cluster.html
+https://stackoverflow.com/questions/12868581/list-all-column-except-for-one-in-r
+https://stackoverflow.com/questions/4605206/drop-data-frame-columns-by-name
+https://ggplot2.tidyverse.org/
+https://cran.r-project.org/web/packages/umap/vignettes/umap.html
+https://stackoverflow.com/questions/7070173/convert-data-frame-column-to-a-vector
+https://www.researchgate.net/post/Can_anybody_explain_why_R_cannot_read_a_certain_file
+https://yihui.org/knitr/options/#other-chunk-options
+https://yihui.org/knitr/options/
+https://rstudio.com/wp-content/uploads/2015/02/rmarkdown-cheatsheet.pdf
+https://rpkgs.datanovia.com/ggpubr/reference/stat_compare_means.html
+https://stackoverflow.com/questions/1330989/rotating-and-spacing-axis-labels-in-ggplot2
+https://uc-r.github.io/tidyr
+https://discuss.analyticsvidhya.com/t/how-to-add-a-column-to-a-data-frame-in-r/3278
+https://stackoverflow.com/questions/5555408/convert-the-values-in-a-column-into-row-names-in-an-existing-data-frame-in-r
+https://www.r-graph-gallery.com/142-basic-radar-chart.html
+https://ggplot2.tidyverse.org/reference/lims.html
+https://stackoverflow.com/questions/56866178/dplyrn-returns-error-error-n-should-only-be-called-in-a-data-context
+https://stackoverflow.com/questions/29511215/convert-row-names-into-first-column
+https://plotly.com/r/contour-plots/#2d-density-contour-plot
+https://plotly.com/r/figure-labels/
+https://plotly.com/r/plotly-fundamentals/
+https://plotly.com/r/colorscales/
+https://plotly.com/r/line-and-scatter/#custom-color-scales
+https://plotly.com/r/reference/#contour
+http://www.sthda.com/english/wiki/ggplot2-colors-how-to-change-colors-automatically-and-manually
+https://ggplot2.tidyverse.org/reference/scale_colour_continuous.html
+https://rstudio.com/wp-content/uploads/2015/03/ggplot2-cheatsheet.pdf
+https://stackoverflow.com/questions/20415963/how-to-increase-the-size-of-points-in-legend-of-ggplot2
+https://stackoverflow.com/questions/14942681/change-size-of-axes-title-and-labels-in-ggplot2
+http://www.cookbook-r.com/Manipulating_data/Converting_data_between_wide_and_long_format/
+https://www.r-graph-gallery.com/48-grouped-barplot-with-ggplot2.html
+https://stackoverflow.com/questions/33565199/how-to-append-multiple-files-in-r
+https://stackoverflow.com/questions/44462494/include-csv-filename-when-reading-data-into-r-using-list-files
+https://stackoverflow.com/questions/51957001/changing-the-order-of-the-groups-in-ggplot-in-r
