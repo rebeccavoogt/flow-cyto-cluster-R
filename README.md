@@ -8,9 +8,9 @@
 
 ## Usage:
 1. Compensate flow cytometry data and gate to population of interest.
-2. Export all samples individually as .csv files. Make sure "export_" is in the exported file name.
-3. Make a metadata table (see example below) and save as .csv file.
-4. Open .Rmd file and follow instructions in document.
+2. Export all samples individually as .csv files using **CHANNEL** values (not scale values). Most times compensated values are used. Make sure "export_" is in the exported file name.
+4. Make a metadata table (see example below) and save as .csv file. 
+5. Open .Rmd file and follow instructions in document.
 
 ## Files:
 - use generic pipeline file for 2 groups
