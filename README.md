@@ -5,6 +5,7 @@
 - variable names are used to make pipeline flexible for multiple experimental conditions
 - R markdown feature allows for preservation of settings used and figures generated for later reference
 - dataframes are exported to indicated directory/folder for downstream analysis in other applications
+- Currently, colors are set using hex codes, and **support up to 15 groups in the template**. This can be changed/edited as desired by using a hex color picker for the codes (google search "hex color picker" for a good one).
 
 ## Usage:
 1. Compensate flow cytometry data and gate to population of interest.
