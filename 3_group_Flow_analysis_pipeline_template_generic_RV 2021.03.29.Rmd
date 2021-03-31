@@ -364,12 +364,14 @@ m <- ggplot(d.manyflowsom,aes(y=UMAP2, x=UMAP1)) +
 plot(m)
 ggsave(m, filename=paste("UMAP_plotted_by_group_and_cluster_",p.exp_name,".png", sep = ""), bg = "transparent")
 
-d.risk1 <- filter(d.manyflowsom,
+d.group11 <- filter(d.manyflowsom,
                   group == p.group1)
-d.del1 <- filter(d.manyflowsom,
+d.group21 <- filter(d.manyflowsom,
                   group == p.group2)
+d.group31 <- filter(d.manyflowsom,
+                  group == p.group3)
 
-i <- ggplot(d.risk1,aes(y=UMAP2, x=UMAP1)) + 
+i <- ggplot(d.group11,aes(y=UMAP2, x=UMAP1)) + 
   geom_point(aes(color=factor(flowSOM_cluster)),size=1, shape = 20)+ 
   labs(title=paste("UMAP ",p.group1," Colored by FlowSOM Cluster"))+
   scale_color_manual(values = c("#3281a8", "#999999", "#000000", "#09851e", "#9b30c2", 
@@ -378,7 +380,7 @@ i <- ggplot(d.risk1,aes(y=UMAP2, x=UMAP1)) +
 plot(i)
 ggsave(i, filename=paste("UMAP_",p.group1,"_plotted_by_group_and_cluster_",p.exp_name,".png", sep = ""), bg = "transparent")
 
-j <- ggplot(d.del1,aes(y=UMAP2, x=UMAP1)) + 
+j <- ggplot(d.group21,aes(y=UMAP2, x=UMAP1)) + 
   geom_point(aes(color=factor(flowSOM_cluster)),size=1, shape = 20)+
   labs(title=paste("UMAP ",p.group2," Colored by FlowSOM Cluster"))+
   scale_color_manual(values = c("#3281a8", "#999999", "#000000", "#09851e", "#9b30c2", 
@@ -386,6 +388,15 @@ j <- ggplot(d.del1,aes(y=UMAP2, x=UMAP1)) +
                                 "#abcdef", "#ffaf2e", "#909000", "#f7f42f", "#cdcdcd"))
 plot(j)
 ggsave(j, filename=paste("UMAP_",p.group2,"_plotted_by_group_and_cluster_",p.exp_name,".png", sep = ""), bg = "transparent")
+
+r <- ggplot(d.group31,aes(y=UMAP2, x=UMAP1)) + 
+  geom_point(aes(color=factor(flowSOM_cluster)),size=1, shape = 20)+
+  labs(title=paste("UMAP ",p.group3," Colored by FlowSOM Cluster"))+
+  scale_color_manual(values = c("#3281a8", "#999999", "#000000", "#09851e", "#9b30c2", 
+                                "#31e0cc", "#d4a224", "#ed1202", "#47e31b", "#a23929", 
+                                "#abcdef", "#ffaf2e", "#909000", "#f7f42f", "#cdcdcd"))
+plot(r)
+ggsave(r, filename=paste("UMAP_",p.group3,"_plotted_by_group_and_cluster_",p.exp_name,".png", sep = ""), bg = "transparent")
 
 # plot and save umap colored by flowSOM cluster and split into each sample
 k <- ggplot(d.umap,aes(y=UMAP2, x=UMAP1)) + 
