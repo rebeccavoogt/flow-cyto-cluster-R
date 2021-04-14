@@ -16,7 +16,7 @@
 ## Files:
 - use generic pipeline file for 2 groups
 - use 3 group file for 3 groups
-
+- use 4 group file for 4 groups (only performs ANOVA for stats, no t-tests)
 ## Example metadata table
 file_name | sample_id  | group
 ------------- |------------- | -------------
