@@ -71,6 +71,7 @@ experimental condition (p.condition) must be exactly as on the metadata sheet co
 name of group 1 (p.group1) must be exactly as on the metadata sheet
 name of group 2 (p.group2) must be exactly as on the metadata sheet
 name of group 3 (p.group3) must be exactly as on the metadata sheet
+name of group 4 (p.group4) must be exactly as on the metadata sheet
 number of cells per sample (p.cells)
 
 number of clusters you want to test in the flowSOM (p.testclusternumber)
