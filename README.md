@@ -18,7 +18,7 @@
 - use 3 group file for 3 groups
 
 ## Example metadata table
-filename | sample_id  | group
+file_name | sample_id  | group
 ------------- |------------- | -------------
 export_Specimen_001_2055 CD45+ | 2055 | A
 export_Specimen_001_2056 CD45+ | 2056 | A
